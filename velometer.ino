@@ -6,13 +6,14 @@
 #define LED_PIN                 13
 
 #define PRESSURE_SENSOR         3
-#define PRESSURE_THRESHOLD      2
+#define PRESSURE_THRESHOLD      2    // Pressure differential must be greater than this
+                                     // value to count as a tire sense event
 
-#define TIMEOUT_MILLIS          2000
+#define TIMEOUT_MILLIS          2000 // inter-tire sense timeout
 
 #define EEPROM_COUNTER_ADDR     0
 #define EEPROM_TIME_ADDR        4
-#define EEPROM_SAVE_SECONDS     300
+#define EEPROM_SAVE_SECONDS     300  // save counter and date to eeprom every n seconds
 
 #define DISP_ADDR		0x50 // (01010000b - AD0, AD1 set to ground)
 #define DISP_MAX_NUMBER         9999
@@ -368,10 +369,10 @@ void loop()
         firstTireTime = millis();
 
         digitalWrite(LED_PIN, LOW);
-        Serial.print("pres: ");
-        Serial.print(pressureInit);
-        Serial.print("/");
-        Serial.println(pressureMax);
+        Serial.print("max: ");
+        Serial.print(pressureMax);
+        Serial.print(", init: ");
+        Serial.println(pressureInit);
         pressureMax = 0;
         state = 2;
       }
@@ -398,22 +399,15 @@ void loop()
         pressureMax = pressureVal;
       }
       
-      // Timeout
-      if ((millis() - firstTireTime) > TIMEOUT_MILLIS) {
-        digitalWrite(LED_PIN, LOW);
-        Serial.println("timeout");
-        state = 0;
-      }
-      
       // Second tire off tube
       else if (pressureDelta <= 0) {
         secondTireTime = millis();
 
         digitalWrite(LED_PIN, LOW);
-        Serial.print("pres: ");
-        Serial.print(pressureInit);
-        Serial.print("/");
+        Serial.print("max: ");
         Serial.print(pressureMax);
+        Serial.print(", init: ");
+        Serial.print(pressureInit);
         pressureMax = 0;
         
         // TODO: if time interval is good, increment counter
