@@ -8,9 +8,10 @@
 #define PRESSURE_SENSOR         3
 #define PRESSURE_THRESHOLD      2
 
-#define TIMEOUT_MILLIS          5000
+#define TIMEOUT_MILLIS          2000
 
 #define EEPROM_COUNTER_ADDR     0
+#define EEPROM_TIME_ADDR        4
 #define EEPROM_SAVE_SECONDS     300
 
 #define DISP_ADDR		0x50 // (01010000b - AD0, AD1 set to ground)
@@ -36,10 +37,11 @@
 DS1337 RTC = DS1337();
 
 volatile int secondsCounter = 0;
-int setTimeMode = false;
+int displayTimeMode = false;
 int state = 0;
 
-volatile unsigned int numBikes;
+volatile boolean runTimely = false;
+unsigned int numBikes;
 
 unsigned long firstTireTime;
 unsigned long secondTireTime;
@@ -222,11 +224,7 @@ int pressureSensorInit()
 void isr()
 {
   secondsCounter += 1;
-  if (secondsCounter >= EEPROM_SAVE_SECONDS) {
-    TEEPROM_write(EEPROM_COUNTER_ADDR, numBikes);
-    secondsCounter = 0;
-    Serial.println("Saved counter to EEPROM");
-  }
+  runTimely = true;
 }
 
 void printMenu()
@@ -259,6 +257,32 @@ void rtcPrintTime()
   Serial.println(int(RTC.getSeconds()));
 }
 
+void timely()
+{
+  // Reset counter at midnight
+  RTC.readTime();
+  int month = int(RTC.getMonths());
+  int days = int(RTC.getDays());
+  int hours = int(RTC.getHours());
+  int mins = int(RTC.getMinutes());
+  int secs = int(RTC.getSeconds());
+  
+  if (hours == 0 && mins == 0 && secs == 0) {
+    numBikes = 0;  
+  }
+
+  // Save counter data to EEPROM every EEPROM_SAVE_SECONDS
+  if (secondsCounter >= EEPROM_SAVE_SECONDS) {
+    int time = month * 100 + days;    
+    TEEPROM_write(EEPROM_COUNTER_ADDR, numBikes);
+    TEEPROM_write(EEPROM_TIME_ADDR, time); 
+    secondsCounter = 0;
+    Serial.println("Saved counter to EEPROM");
+  }
+  
+
+}
+
 void setup()
 {
   Serial.begin(115200);
@@ -287,9 +311,24 @@ void setup()
   Serial.println(pressureInit);
 
   // Initialize counter and update display
-  TEEPROM_read(EEPROM_COUNTER_ADDR, numBikes);
+  int memday, curday;
+  RTC.readTime();
+  int month = int(RTC.getMonths());
+  int days = int(RTC.getDays());
+  curday = month * 100 + days;
+  TEEPROM_read(EEPROM_TIME_ADDR, memday);  
+  if (curday > memday) {
+    numBikes = 0; 
+  }
+  else {
+    TEEPROM_read(EEPROM_COUNTER_ADDR, numBikes);
+  }
   displayWriteNumber(numBikes);
-  Serial.print("  [OK] EEPROM, num bikes: ");
+  Serial.print("  [OK] EEPROM, memday: ");
+  Serial.print(memday);
+  Serial.print(" curday: ");
+  Serial.print(curday);
+  Serial.print(" num bikes: ");
   Serial.println(numBikes);
   
   Serial.println("Ready!");
@@ -298,6 +337,11 @@ void setup()
 
 void loop()
 {
+  if (runTimely == true) {
+    timely();
+    runTimely = false;
+  }
+  
   pressureVal = analogRead(PRESSURE_SENSOR);
   pressureDelta = pressureVal - pressureInit;
   
@@ -306,9 +350,9 @@ void loop()
       pressureMax = 0;
       
       // First tire on tube
-      if (pressureDelta >= PRESSURE_THRESHOLD) {
+      if (pressureDelta > PRESSURE_THRESHOLD) {
         digitalWrite(LED_PIN, HIGH);
-        Serial.println("First tire detected");
+        Serial.print("tire 1 ");
         state = 1;
       }
       break;
@@ -320,12 +364,13 @@ void loop()
       }
       
       // First tire off tube
-      if (pressureDelta < PRESSURE_THRESHOLD) {
+      if (pressureDelta <= 0) {
         firstTireTime = millis();
 
         digitalWrite(LED_PIN, LOW);
-        Serial.println("First tire removed");
-        Serial.print("Pressure: ");
+        Serial.print("pres: ");
+        Serial.print(pressureInit);
+        Serial.print("/");
         Serial.println(pressureMax);
         pressureMax = 0;
         state = 2;
@@ -336,14 +381,14 @@ void loop()
       // Timeout
       if ((millis() - firstTireTime) > TIMEOUT_MILLIS) {
         digitalWrite(LED_PIN, LOW);
-        Serial.println("Timeout");
+        Serial.println("timeout");
         state = 0;
       }
       
       // Second tire on tube
-      else if (pressureDelta >= PRESSURE_THRESHOLD) {
+      else if (pressureDelta > PRESSURE_THRESHOLD) {
         digitalWrite(LED_PIN, HIGH);
-        Serial.println("Second tire detected");
+        Serial.print("tire 2 ");
         state = 3; 
       }
       break;
@@ -356,25 +401,26 @@ void loop()
       // Timeout
       if ((millis() - firstTireTime) > TIMEOUT_MILLIS) {
         digitalWrite(LED_PIN, LOW);
-        Serial.println("Timeout");
+        Serial.println("timeout");
         state = 0;
       }
       
       // Second tire off tube
-      else if (pressureDelta < PRESSURE_THRESHOLD) {
+      else if (pressureDelta <= 0) {
         secondTireTime = millis();
 
         digitalWrite(LED_PIN, LOW);
-        Serial.println("Second tire removed");
-        Serial.print("Pressure: ");
-        Serial.println(pressureMax);
+        Serial.print("pres: ");
+        Serial.print(pressureInit);
+        Serial.print("/");
+        Serial.print(pressureMax);
         pressureMax = 0;
         
         // TODO: if time interval is good, increment counter
         numBikes += 1;
         displayWriteNumber(numBikes);
 
-        Serial.print("Num bikes: ");
+        Serial.print(", num bikes: ");
         Serial.println(numBikes);
 
         state = 0;
@@ -403,9 +449,16 @@ void loop()
 
     // Save counter to EEPROM
     else if (input == '3') {
+      RTC.readTime();
+      int month = int(RTC.getMonths());
+      int days = int(RTC.getDays());
+      int curday = month * 100 + days;
       TEEPROM_write(EEPROM_COUNTER_ADDR, numBikes);
+      TEEPROM_write(EEPROM_TIME_ADDR, curday);
       Serial.print("Num bikes: ");
       Serial.println(numBikes);
+      Serial.print("Day: ");
+      Serial.println(curday);
     }
     
     // Seconds remaining to EEPROM save
@@ -445,8 +498,11 @@ void loop()
         Serial.println("Time set to:");
         rtcPrintTime();
       }
-
-    }   
+    }  
+    else if (input == '7')
+    {
+      displayTimeMode = !displayTimeMode;
+    } 
     else if (input == '\n' || input == '\r')
     {
       printMenu();
