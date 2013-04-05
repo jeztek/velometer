@@ -14,6 +14,7 @@
 #define EEPROM_SAVE_SECONDS     300
 
 #define DISP_ADDR		0x50 // (01010000b - AD0, AD1 set to ground)
+#define DISP_MAX_NUMBER         9999
 
 #define DISP_INTENSITY10_CMD	0x01
 #define DISP_INTENSITY32_CMD	0x02
@@ -141,7 +142,32 @@ void displayEnableTest(boolean val)
 void displayWriteNumber(unsigned int value)
 {
   char digits[5];
+
+  // We can't display values greater than the number of digits available
+  if (value > DISP_MAX_NUMBER) {
+    value = DISP_MAX_NUMBER;  
+  }
+  
+  // Right justify numbers
   utoa(value, digits, 10);
+  if (value < 10) {
+    digits[3] = digits[0];    
+    digits[2] = 0x20;    
+    digits[1] = 0x20;    
+    digits[0] = 0x20;
+  }
+  else if (value < 100) {
+    digits[3] = digits[1];    
+    digits[2] = digits[0];    
+    digits[1] = 0x20;    
+    digits[0] = 0x20;     
+  }
+  else if (value < 1000) {
+    digits[3] = digits[2];    
+    digits[2] = digits[1];    
+    digits[1] = digits[0];    
+    digits[0] = 0x20;         
+  }
   displayWriteChars(digits);
 }
 
@@ -209,10 +235,11 @@ void printMenu()
   Serial.print("Num bikes: ");
   Serial.println(numBikes);
   Serial.println("1 - Reset counter");  
-  Serial.println("2 - Save counter to EEPROM");
-  Serial.println("3 - Seconds to next counter save");
-  Serial.println("4 - Get time");
-  Serial.println("5 - Set time");
+  Serial.println("2 - Set counter value");
+  Serial.println("3 - Save counter to EEPROM");
+  Serial.println("4 - Seconds to next counter save");
+  Serial.println("5 - Get time");
+  Serial.println("6 - Set time");
   Serial.flush();  
 }
 
@@ -365,25 +392,37 @@ void loop()
       Serial.println("Counter reset, num bikes: 0");
     }
     
-    // Save counter to EEPROM
+    // Set counter
     else if (input == '2') {
+      Serial.println("Enter counter value and press enter");
+      Serial.setTimeout(100000);
+      int val = Serial.parseInt();
+      numBikes = val;
+      displayWriteNumber(numBikes);
+    }
+
+    // Save counter to EEPROM
+    else if (input == '3') {
       TEEPROM_write(EEPROM_COUNTER_ADDR, numBikes);
       Serial.print("Num bikes: ");
       Serial.println(numBikes);
     }
     
-    else if (input == '3') {
+    // Seconds remaining to EEPROM save
+    else if (input == '4') {
       int remainSeconds = EEPROM_SAVE_SECONDS - secondsCounter;
       Serial.print("Seconds remaining: ");
       Serial.println(remainSeconds);  
     }
     
-    else if (input == '4') {
+    // Get time
+    else if (input == '5') {
       Serial.println("Current time:");
       rtcPrintTime();      
     }
     
-    else if (input == '5') {
+    // Set time
+    else if (input == '6') {
       Serial.println("Enter time in the following format: \"mm dd yyyy hh mm\" and press enter");
 
       int mo, dd, yyyy, hh, mm;
@@ -407,8 +446,7 @@ void loop()
         rtcPrintTime();
       }
 
-    }
-    
+    }   
     else if (input == '\n' || input == '\r')
     {
       printMenu();
