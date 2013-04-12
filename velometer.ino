@@ -5,9 +5,9 @@
 
 #define LED_PIN                 13
 
-#define PRESSURE_SENSOR         3
-#define PRESSURE_THRESHOLD      2    // Pressure differential must be greater than this
-                                     // value to count as a tire sense event
+#define PRES_SENSOR             3
+#define PRES_BUFLEN             10   // Length of averaging buffer                            
+#define PRES_THRESHOLD          2    // Pressure differential to trigger tire sense event
 
 #define TIMEOUT_MILLIS          2000 // inter-tire sense timeout
 
@@ -37,19 +37,27 @@
 
 DS1337 RTC = DS1337();
 
-volatile int secondsCounter = 0;
-int displayTimeMode = false;
-int state = 0;
+int debugMode = false;
+int minVal = 32767;
+int maxVal = 0;
+
+int state = 0;                 // pressure sensor state machine
 
 volatile boolean runTimely = false;
-unsigned int numBikes;
+volatile int saveCounter = 0;  // EEPROM save interval counter
 
+unsigned int numBikes;
 unsigned long firstTireTime;
 unsigned long secondTireTime;
-int pressureInit;      // baseline pressure value
-int pressureVal;       // latest pressure reading
-int pressureDelta;
-int pressureMax;
+
+int presBuffer[PRES_BUFLEN];
+int presTotal = 0;     // for pressure averaging
+int presIdx = 0;       // for pressure averaging - index into buffer
+
+int presInit;          // baseline pressure value
+int presVal;
+int presDelta;
+int presMax = 0;
 
 void displayInit()
 {
@@ -208,23 +216,43 @@ void displayWriteChar(char val, int digitNum)
   }
 }
 
-int pressureSensorInit()
+int presSensorInit()
 {
-   int pressureAvg = 0;
+   int presAvg = 0;
    int i;
    
-   for (i = 0; i < 5; i++)
-   {
-     pressureAvg += analogRead(PRESSURE_SENSOR);
+   // Read baseline sensor value
+   for (i = 0; i < 5; i++) {
+     presAvg += analogRead(PRES_SENSOR);
      delay(50);  
    }
-   pressureAvg = pressureAvg / 5;
-   return pressureAvg;
+   presAvg = presAvg / 5;
+   
+   // Initialize averaging buffer
+   for (i = 0; i < PRES_BUFLEN; i++) {
+     presBuffer[i] = presAvg;
+   }
+   return presAvg;
+}
+
+int presReadAvg()
+{
+  // subtract last entry in ring buffer
+  presTotal -= presBuffer[presIdx];
+
+  // add new sensor reading
+  presBuffer[presIdx] = analogRead(PRES_SENSOR);
+  presTotal += presBuffer[presIdx];
+
+  presIdx++;  
+  if (presIdx >= PRES_BUFLEN) presIdx = 0;
+  
+  return presTotal / PRES_BUFLEN;
 }
 
 void isr()
 {
-  secondsCounter += 1;
+  saveCounter += 1;
   runTimely = true;
 }
 
@@ -258,6 +286,7 @@ void rtcPrintTime()
   Serial.println(int(RTC.getSeconds()));
 }
 
+// This function should be called once a second
 void timely()
 {
   // Reset counter at midnight
@@ -273,15 +302,13 @@ void timely()
   }
 
   // Save counter data to EEPROM every EEPROM_SAVE_SECONDS
-  if (secondsCounter >= EEPROM_SAVE_SECONDS) {
+  if (saveCounter >= EEPROM_SAVE_SECONDS) {
     int time = month * 100 + days;    
     TEEPROM_write(EEPROM_COUNTER_ADDR, numBikes);
     TEEPROM_write(EEPROM_TIME_ADDR, time); 
-    secondsCounter = 0;
+    saveCounter = 0;
     Serial.println("Saved counter to EEPROM");
   }
-  
-
 }
 
 void setup()
@@ -306,12 +333,13 @@ void setup()
   Serial.println("  [OK] display");
   
   // Initialize pressure sensor
-  pressureInit = pressureSensorInit();
-  pressureMax = 0;
+  presInit = presSensorInit();
   Serial.print("  [OK] pressure sensor, init: ");  
-  Serial.println(pressureInit);
+  Serial.println(presInit);
 
-  // Initialize counter and update display
+  // Initialize numBikes counter and update display
+  // If we're no longer on the same day as the last save, set to zero
+  // otherwise, use value in EEPROM
   int memday, curday;
   RTC.readTime();
   int month = int(RTC.getMonths());
@@ -338,20 +366,34 @@ void setup()
 
 void loop()
 {
+  // Loop needs to run much faster than once per second to ensure timely() 
+  // gets run once per second 
   if (runTimely == true) {
     timely();
     runTimely = false;
   }
   
-  pressureVal = analogRead(PRESSURE_SENSOR);
-  pressureDelta = pressureVal - pressureInit;
+  presVal = presReadAvg();
+  presDelta = presVal - presInit;
   
+  if (debugMode) {
+    if (presVal < minVal) {
+      minVal = presVal;
+    }
+    if (presVal > maxVal) {
+      maxVal = presVal; 
+    }
+    Serial.println(presVal);
+    delay(100);
+  }
+
+/*  
   switch(state) {
     case 0:
-      pressureMax = 0;
+      presMax = 0;
       
       // First tire on tube
-      if (pressureDelta > PRESSURE_THRESHOLD) {
+      if (presDelta > PRES_THRESHOLD) {
         digitalWrite(LED_PIN, HIGH);
         Serial.print("tire 1 ");
         state = 1;
@@ -359,21 +401,21 @@ void loop()
       break;
 
     case 1:
-      if (pressureVal > pressureMax) 
+      if (presVal > presMax) 
       {
-        pressureMax = pressureVal;
+        presMax = presVal;
       }
       
       // First tire off tube
-      if (pressureDelta <= 0) {
+      if (presDelta <= 0) {
         firstTireTime = millis();
 
         digitalWrite(LED_PIN, LOW);
         Serial.print("max: ");
-        Serial.print(pressureMax);
+        Serial.print(presMax);
         Serial.print(", init: ");
-        Serial.println(pressureInit);
-        pressureMax = 0;
+        Serial.println(presInit);
+        presMax = 0;
         state = 2;
       }
       break;
@@ -387,7 +429,7 @@ void loop()
       }
       
       // Second tire on tube
-      else if (pressureDelta > PRESSURE_THRESHOLD) {
+      else if (presDelta > PRES_THRESHOLD) {
         digitalWrite(LED_PIN, HIGH);
         Serial.print("tire 2 ");
         state = 3; 
@@ -395,20 +437,20 @@ void loop()
       break;
       
     case 3:
-      if (pressureMax < pressureVal) {
-        pressureMax = pressureVal;
+      if (presMax < presVal) {
+        presMax = presVal;
       }
       
       // Second tire off tube
-      else if (pressureDelta <= 0) {
+      else if (presDelta <= 0) {
         secondTireTime = millis();
 
         digitalWrite(LED_PIN, LOW);
         Serial.print("max: ");
-        Serial.print(pressureMax);
+        Serial.print(presMax);
         Serial.print(", init: ");
-        Serial.print(pressureInit);
-        pressureMax = 0;
+        Serial.print(presInit);
+        presMax = 0;
         
         // TODO: if time interval is good, increment counter
         numBikes += 1;
@@ -421,6 +463,7 @@ void loop()
       }
       break;  
   }
+  */
   
   if (Serial.available() > 0) {
     byte input = Serial.read();
@@ -457,7 +500,7 @@ void loop()
     
     // Seconds remaining to EEPROM save
     else if (input == '4') {
-      int remainSeconds = EEPROM_SAVE_SECONDS - secondsCounter;
+      int remainSeconds = EEPROM_SAVE_SECONDS - saveCounter;
       Serial.print("Seconds remaining: ");
       Serial.println(remainSeconds);  
     }
@@ -493,10 +536,24 @@ void loop()
         rtcPrintTime();
       }
     }  
+    
+    // Toggle debug
     else if (input == '7')
     {
-      displayTimeMode = !displayTimeMode;
+      debugMode = !debugMode;
     } 
+    
+    // Print min/max pressure sensor readings
+    else if (input == '8')
+    {
+        Serial.print("Min: ");
+        Serial.println(minVal);
+        Serial.print("Max: ");
+        Serial.println(maxVal);
+        minVal = 32767;
+        maxVal = 0;
+    }
+    
     else if (input == '\n' || input == '\r')
     {
       printMenu();
