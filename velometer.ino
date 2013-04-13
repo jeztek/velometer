@@ -230,7 +230,7 @@ int presSensorInit()
    
    // Initialize averaging buffer
    for (i = 0; i < PRES_BUFLEN; i++) {
-     presBuffer[i] = presAvg;
+     presBuffer[i] = 0;
    }
    return presAvg;
 }
@@ -387,7 +387,6 @@ void loop()
     delay(100);
   }
 
-/*  
   switch(state) {
     case 0:
       presMax = 0;
@@ -463,7 +462,6 @@ void loop()
       }
       break;  
   }
-  */
   
   if (Serial.available() > 0) {
     byte input = Serial.read();

@@ -1,0 +1,20 @@
+Velometer Bicycle Counter
+
+
+=== Notices ===
+* Bicycle counter value gets saved every 5 minutes
+  NOTE: counts between power cycle and last save will be lost
+
+* RTC will reset bicycle counter to 0 at the start of every day (midnight)
+
+
+=== Sourced examples ===
+
+Pressure sensor smoothing (running average)
+http://arduino.cc/en/Tutorial/Smoothing
+
+EEPROM
+http://playground.arduino.cc/Code/EEPROMWriteAnything
+
+DS1337 RTC
+http://arduino.cc/forum/index.php?topic=38077.0
