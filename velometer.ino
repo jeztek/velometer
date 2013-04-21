@@ -463,6 +463,8 @@ void loop()
       break;  
   }
   
+  delay(5);
+  
   if (Serial.available() > 0) {
     byte input = Serial.read();
     
