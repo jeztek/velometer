@@ -6,7 +6,7 @@
 #define LED_PIN                 13
 
 #define PRES_SENSOR             3
-#define PRES_BUFLEN             10   // Length of averaging buffer                            
+#define PRES_BUFLEN             4    // Length of averaging buffer                            
 #define PRES_THRESHOLD          2    // Pressure differential to trigger tire sense event
 
 #define TIMEOUT_MILLIS          2000 // inter-tire sense timeout
