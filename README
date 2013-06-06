@@ -1,20 +1,36 @@
-Velometer Bicycle Counter
+=== Velometer Bicycle Counter ===
+
+http://velometer.tumblr.com/
+
+This software controls the Velometer Bicycle Counter.  The counter features:
+
+* 4 digit LED matrix display
+* Pressure sensor for detecting bicycles
+* Real-time clock automatically resets counter each day
+* Bicycle counter value saved to EEPROM every 5 minutes
+
+GNU LGPL licensed
 
 
-=== Notices ===
-* Bicycle counter value gets saved every 5 minutes
-  NOTE: counts between power cycle and last save will be lost
+=== Hardware ===
 
-* RTC will reset bicycle counter to 0 at the start of every day (midnight)
+* Arduino Uno microcontroller board
+* Freescale MPX4250 differential pressure sensor
+* Maxim MAX6953 matrix LED display driver
+* Maxim DS1337 real-time clock
 
 
-=== Sourced examples ===
+=== Dependencies ===
 
-Pressure sensor smoothing (running average)
-http://arduino.cc/en/Tutorial/Smoothing
+* DS1337 RTC library sourced from Mosquino project
+  https://code.google.com/p/mosquino/
+  http://arduino.cc/forum/index.php?topic=38077.0
 
-EEPROM
-http://playground.arduino.cc/Code/EEPROMWriteAnything
+* Some code portions adapted from:
 
-DS1337 RTC
-http://arduino.cc/forum/index.php?topic=38077.0
+  * Pressure sensor smoothing (running average)
+    http://arduino.cc/en/Tutorial/Smoothing
+
+  * EEPROM read/write
+    http://playground.arduino.cc/Code/EEPROMWriteAnything
+
